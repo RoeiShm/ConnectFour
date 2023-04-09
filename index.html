@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        h1,
+        h2,
+        h3 {
+            text-align: center;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .shown {
+            display: block;
+        }
+
+        #divBoard {
+            width: 700px;
+            height: 600px;
+            background-image: url('board.png');
+        }
+
+        .divCell {
+            width: 100px;
+            height: 100px;
+            float: left;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
+    <script src="./client_tools.js"></script>
+    <script>
+        let divLogin, divLobby, divGame;
+        let pLoginMessage, txtUsername, txtPassword;
+        let username, password;
+        let divUsersInLobby;
+        let btnLeaveGame;
+        let gameId, lblGameId;
+        let divBoard;
+        let divCells = [];
+        function init() {
+            divLogin = document.getElementById('divLogin');
+            divLobby = document.getElementById('divLobby');
+            divGame = document.getElementById('divGame');
+            pLoginMessage = document.getElementById('pLoginMessage');
+            txtUsername = document.getElementById('txtUsername');
+            txtPassword = document.getElementById('txtPassword');
+            divUsersInLobby = document.getElementById('divUsersInLobby');
+            btnLeaveGame = document.getElementById('btnLeaveGame');
+            lblGameId = document.getElementById('lblGameId');
+            divBoard = document.getElementById('divBoard');
+
+            //create the 42 cells for the game board
+            for (let i = 0; i < 42; i++) {
+                let divCell = document.createElement('div');
+                divCell.className = 'divCell';
+                divCells.push(divCell);
+                divCell.onclick = () => {
+                    //send cell (i) to the server when the cell clicked
+                    sendHttpGetRequest('api/play_cell?username=' + username + '&password=' + password + '&id=' + gameId + '&cell=' + i, (response) => {
+                        if (response) {
+                        }
+                    });
+                };
+                divBoard.appendChild(divCell);
+                txtUsername.focus();
+            }
+        }
+
+        function removeAllChildNodes(node) {
+            while (node.firstChild)
+                node.removeChild(node.firstChild);
+        }
+
+        function show(element) { //show the div of the screen(login/lobby/game) and hide all the others divs
+            let shown = document.getElementsByClassName('shown');
+            if (shown.length == 1) {
+                shown[0].classList.add('hidden');
+                shown[0].classList.remove('shown');
+            }
+            element.classList.add('shown');
+            element.classList.remove('hidden');
+        }
+
+        function getLobby() { //get a list of all the user in the lobby without me
+            sendHttpGetRequest('api/get_lobby?username=' + username + '&password=' + password, (result) => {
+                let usersInLobby = JSON.parse(result);
+                removeAllChildNodes(divUsersInLobby);
+                let existsInList = false;
+                for (let i = 0; i < usersInLobby.length; i++) {
+                    if (usersInLobby[i].username == username) { //cant see me on the lobby
+                        existsInList = true;
+                        continue;
+                    }
+                    let p = document.createElement('p');
+                    p.innerHTML = usersInLobby[i].username;
+                    divUsersInLobby.appendChild(p);
+                    p.onclick = (event) => {
+                        let partner = event.target.innerHTML;
+                        sendHttpGetRequest('api/start_game?username=' + username + '&password=' + password + '&partner=' + partner, (response) => {
+                            if (response == "error") {
+                                alert("error, try again");
+                            }
+                        });
+                    };
+                }
+                if (existsInList) {
+                    setTimeout(getLobby, 500); //refresh the lobby every 0.5 sec
+                } else { //exsitsinlist=false so someone chose me
+                    //check game id
+                    sendHttpGetRequest('api/get_game_id?username=' + username + '&password=' + password, (response) => {
+                        if (response) {
+                            gameId = parseInt(response);
+                            lblGameId.innerHTML = "your game id is: " + gameId;
+                            show(divGame);
+                            getGameStatus();
+                        }
+                    });
+                }
+            });
+        }
+
+        function btnLoginSignupClicked(loginOrSignup) {
+            username = txtUsername.value;
+            password = txtPassword.value;
+            if (!username || !password) return; //check if there is username and password (check if not empty)
+            //lock the buttons
+            let elements = document.getElementsByClassName("lock");
+            for (let e in elements) {
+                e.disabled = true;
+            }
+            pLoginMessage.innerHTML = "";
+            sendHttpGetRequest('api/' + loginOrSignup + '?username=' + username + '&password=' + password, (response) => {
+                //release the buttons
+                for (let e in elements) {
+                    e.disabled = false;
+                }
+                if (response == "ok") {
+                    show(divLobby);
+                    getLobby();
+
+                } else if (response == "invalid") {
+                    pLoginMessage.innerHTML = "invalid username or password.";
+                } else if (response == "taken") {
+                    pLoginMessage.innerHTML = "username already taken.";
+                }
+            });
+        }
+
+        function btnLeaveGameClicked() { //leave the game, me and my partner should go back to the lobby
+            let elements = document.getElementsByClassName("lock");
+            for (let e in elements) {
+                e.disabled = true;
+            }
+            //send http request to "leave game"
+            sendHttpGetRequest('api/leave_game?username=' + username + '&password=' + password, (response) => {
+                for (let e in elements) {
+                    e.disabled = false;
+                }
+                if (response == "ok") {
+                    show(divLobby);
+                    getLobby();
+                }
+            });
+        }
+
+        function getGameStatus() { //check the game status to update the board
+            sendHttpGetRequest('api/get_game_status?username=' + username + '&password=' + password + '&id=' + gameId, (response) => {
+                let gameStatus = JSON.parse(response);
+                if (gameStatus.active) { //check if the game is active
+                    //render the board
+                    for (let i = 0; i < 42; i++) { //max 42 cells
+                        let cellStatus = gameStatus.board[i];
+                        if (cellStatus == 0) { //empy cell
+                            divCells[i].innerHTML = "";
+                        } else if (cellStatus == 1) { //red cell
+                            divCells[i].innerHTML = '<img src="red.png" />';
+                        } else if (cellStatus == 2) { //yellow cell
+                            divCells[i].innerHTML = '<img src="yellow.png" />';
+                        }
+                    }
+                    setTimeout(getGameStatus, 500); //update time every 0.5 sec
+                } else { //if the game is not active so go back to the lobby
+                    show(divLobby);
+                    getLobby();
+                }
+            });
+        }
+    </script>
+</head>
+
+<body onload="init()">
+    <h1>Connect Four</h1>
+    <!-- init when the login page is shown -->
+    <div id="divLogin" class="shown">
+        <h2>login</h2>
+        <p>username: <input class="lock" type="text" id="txtUsername" /></p>
+        <p>password: <input class="lock" type="password" id="txtPassword" /></p>
+        <p><button class="lock" onclick="btnLoginSignupClicked('login')">login</button><button class="lock"
+                onclick="btnLoginSignupClicked('signup')">signup</button></p>
+        <p id="pLoginMessage"></p>
+    </div>
+    <!-- init when the lobby page is hidden -->
+    <div id="divLobby" class="hidden">
+        <h2>lobby</h2>
+        <div id="divUsersInLobby"></div>
+    </div>
+    <!-- init when the game page is hidden -->
+    <div id="divGame" class="hidden">
+        <h2>game</h2>
+        <p id="lblGameId"></p>
+        <div id="divBoard"></div>
+        <p><button class="lock" id="btnLeaveGame" onclick="btnLeaveGameClicked()">leave game</button></p>
+    </div>
+</body>
+
+</html>

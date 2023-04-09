@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "mysql": "^2.18.1",
+    "node-notifier": "^10.0.1"
+  }
+}
